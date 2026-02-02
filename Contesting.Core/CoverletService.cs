@@ -39,27 +39,33 @@ public class CoverletService
     /// </summary>
     public CoverageResult? GetLatestCoverageResult()
     {
-        var testResultsPath = Path.Combine(_workingDirectory, "TestResults");
+        // Search for TestResults directories recursively (they're often in test project dirs)
+        var testResultsDirs = Directory
+            .GetDirectories(_workingDirectory, "TestResults", SearchOption.AllDirectories)
+            .Where(d => !d.Contains("/bin/") && !d.Contains("/obj/"))
+            .ToList();
 
-        if (!Directory.Exists(testResultsPath))
+        if (!testResultsDirs.Any())
         {
-            _logger.LogDebug("TestResults directory not found at {Path}", testResultsPath);
+            _logger.LogWarning("📊 Coverage: No TestResults directories found under {Path}", _workingDirectory);
             return null;
         }
 
-        // Find the most recent coverage file
-        var coverageFile = Directory
-            .GetFiles(testResultsPath, "coverage.cobertura.xml", SearchOption.AllDirectories)
+        // Find the most recent coverage file across all TestResults directories
+        var coverageFiles = testResultsDirs
+            .SelectMany(dir => Directory.GetFiles(dir, "coverage.cobertura.xml", SearchOption.AllDirectories))
             .Select(f => new FileInfo(f))
             .OrderByDescending(f => f.LastWriteTime)
-            .FirstOrDefault();
+            .ToList();
 
-        if (coverageFile == null)
+        if (!coverageFiles.Any())
         {
-            _logger.LogDebug("No coverage.cobertura.xml file found in TestResults");
+            _logger.LogWarning("📊 Coverage: No coverage.cobertura.xml files found in TestResults directories");
+            _logger.LogWarning("📊 Coverage: Make sure test project has coverlet.collector package reference");
             return null;
         }
 
+        var coverageFile = coverageFiles.First();
         _logger.LogDebug("Parsing coverage from {File}", coverageFile.FullName);
         return ParseCoberturaFile(coverageFile.FullName);
     }
@@ -161,29 +167,37 @@ public class CoverletService
     {
         if (result == null)
         {
-            _logger.LogDebug("No coverage data available");
+            // Don't log anything here - GetLatestCoverageResult already logged the issue
             return;
         }
 
-        _logger.LogInformation("Coverage: {LineCoverage:F1}% lines ({Covered}/{Total})",
+        _logger.LogInformation("📊 Coverage: {LineCoverage:F1}% lines ({Covered}/{Total})",
             result.LineCoverage, result.CoveredLines, result.TotalLines);
 
         if (result.TotalBranches > 0)
         {
-            _logger.LogInformation("Branch coverage: {BranchCoverage:F1}% ({Covered}/{Total})",
+            _logger.LogInformation("📊 Branch coverage: {BranchCoverage:F1}% ({Covered}/{Total})",
                 result.BranchCoverage, result.CoveredBranches, result.TotalBranches);
         }
 
-        // Log files with low coverage (< 80%)
-        var lowCoverageFiles = result.Files
-            .Where(f => f.LineCoverage < 80 && f.TotalLines > 0)
-            .OrderBy(f => f.LineCoverage)
-            .Take(5);
+        // Show coverage breakdown by file
+        var filesWithCoverage = result.Files
+            .Where(f => f.TotalLines > 0)
+            .OrderByDescending(f => f.LineCoverage)
+            .ToList();
 
-        foreach (var file in lowCoverageFiles)
+        if (filesWithCoverage.Any())
         {
-            var shortPath = Path.GetFileName(file.FilePath);
-            _logger.LogWarning("  Low coverage: {File} ({Coverage:F1}%)", shortPath, file.LineCoverage);
+            _logger.LogInformation("📊 Coverage by file:");
+            foreach (var file in filesWithCoverage)
+            {
+                var shortPath = Path.GetFileName(file.FilePath);
+                var emoji = file.LineCoverage >= 80 ? "✅" : file.LineCoverage >= 50 ? "⚠️ " : "❌";
+                var logLevel = file.LineCoverage >= 80 ? LogLevel.Information : LogLevel.Warning;
+
+                _logger.Log(logLevel, "  {Emoji} {File}: {Coverage:F1}% ({Covered}/{Total} lines)",
+                    emoji, shortPath, file.LineCoverage, file.CoveredLines, file.TotalLines);
+            }
         }
     }
 
