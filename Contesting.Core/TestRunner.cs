@@ -21,14 +21,28 @@ public class TestRunner
         _workingDirectory = Path.GetFullPath(workingDirectory);
     }
 
-    public async Task<bool> RunTestsAsync(string? filter = null)
+    public async Task<bool> RunTestsAsync(string? filter = null, bool collectCoverage = true)
     {
-        _logger.LogInformation("Running tests{Filter}", string.IsNullOrEmpty(filter) ? "" : $" with filter: {filter}");
+        _logger.LogInformation("Running tests{Filter}{Coverage}",
+            string.IsNullOrEmpty(filter) ? "" : $" with filter: {filter}",
+            collectCoverage ? " with coverage" : "");
+
+        var arguments = "test --no-build";
+
+        if (collectCoverage)
+        {
+            arguments += " --collect:\"XPlat Code Coverage\"";
+        }
+
+        if (!string.IsNullOrEmpty(filter))
+        {
+            arguments += $" --filter \"{filter}\"";
+        }
 
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = string.IsNullOrEmpty(filter) ? "test --no-build" : $"test --no-build --filter \"{filter}\"",
+            Arguments = arguments,
             WorkingDirectory = _workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

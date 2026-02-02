@@ -88,7 +88,7 @@ coverage*.info
 *.coverage
 *.coveragexml
 
-# MiniCover reports and files
+# Coverage reports (legacy MiniCover and other tools)
 coverage-html/
 coverage.json
 coverage.xml
@@ -329,10 +329,6 @@ MigrationBackup/
 
 # Contesting specific ignores
 test-file.cs
-*.uninstrumented.dll
-*.uninstrumented.pdb
-
-# Additional MiniCover files (avoid duplication with section above)
 
 # Temporary files and OS generated files
 .DS_Store

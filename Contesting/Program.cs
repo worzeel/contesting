@@ -31,13 +31,13 @@ builder.Services.AddLogging(logging =>
 // Register services with the target directory
 builder.Services.AddSingleton<TestRunner>(provider =>
     new TestRunner(provider.GetRequiredService<ILogger<TestRunner>>(), targetDirectory));
-builder.Services.AddSingleton<MiniCoverService>(provider =>
-    new MiniCoverService(provider.GetRequiredService<ILogger<MiniCoverService>>(), targetDirectory));
+builder.Services.AddSingleton<CoverletService>(provider =>
+    new CoverletService(provider.GetRequiredService<ILogger<CoverletService>>(), targetDirectory));
 builder.Services.AddHostedService<FileWatcherService>(provider =>
     new FileWatcherService(
         provider.GetRequiredService<ILogger<FileWatcherService>>(),
         provider.GetRequiredService<TestRunner>(),
-        provider.GetRequiredService<MiniCoverService>(),
+        provider.GetRequiredService<CoverletService>(),
         targetDirectory));
 
 var host = builder.Build();
@@ -57,9 +57,9 @@ if (solutionFiles.Length == 0 && projectFiles.Length == 0)
 
 logger.LogInformation("Found {SolutionCount} solution(s) and {ProjectCount} project(s)", solutionFiles.Length, projectFiles.Length);
 
-// Initial setup - build and instrument
+// Initial setup - build and run tests
 var testRunner = host.Services.GetRequiredService<TestRunner>();
-var miniCover = host.Services.GetRequiredService<MiniCoverService>();
+var coverletService = host.Services.GetRequiredService<CoverletService>();
 
 logger.LogInformation("Building solution...");
 var buildResult = await RunCommand("dotnet", "build", targetDirectory);
@@ -69,12 +69,12 @@ if (!buildResult)
     return;
 }
 
-logger.LogInformation("Setting up coverage instrumentation...");
-await miniCover.InstrumentAsync();
-await miniCover.ResetAsync();
+logger.LogInformation("Running initial tests with coverage...");
+var testsPassed = await testRunner.RunTestsAsync(collectCoverage: true);
 
-logger.LogInformation("Running initial tests...");
-await testRunner.RunTestsAsync();
+// Show initial coverage summary
+var coverage = coverletService.GetLatestCoverageResult();
+coverletService.LogCoverageSummary(coverage);
 
 logger.LogInformation("Starting file monitoring...");
 await host.RunAsync();
