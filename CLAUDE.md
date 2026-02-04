@@ -10,6 +10,7 @@ Contesting is a standalone background test runner that monitors ANY C# solution/
 - **Coverlet Integration**: Built-in code coverage using Coverlet collector
 - **Real-time Feedback**: Clear pass/fail indicators for test results
 - **Coverage Reporting**: Shows line coverage percentage after each test run
+- **IDE-Friendly JSON Output**: Generates structured JSON with uncovered lines, hit counts, method/branch coverage for IDE plugins
 - **Background Operation**: Runs continuously while you develop
 
 ## Usage
@@ -60,7 +61,8 @@ reportgenerator -reports:"TestResults/**/coverage.cobertura.xml" -targetdir:"Tes
 3. **Automatic Testing**: When files change, builds and runs `dotnet test` automatically
 4. **Coverage Collection**: Uses Coverlet (via `--collect:"XPlat Code Coverage"`) to collect coverage data
 5. **Coverage Reporting**: Parses Cobertura XML and displays coverage summary
-6. **Background Operation**: Runs continuously in the background while you develop
+6. **JSON Output**: Writes detailed coverage to `TestResults/latest-coverage.json` with uncovered lines, hit counts, method/branch coverage
+7. **Background Operation**: Runs continuously in the background while you develop
 
 ## Typical Workflow
 ```bash
@@ -101,6 +103,66 @@ warn: Build failed with exit code 1
 warn: Build failed after file change
 ```
 
+### JSON Coverage Output
+
+After each test run, detailed coverage is written to `TestResults/latest-coverage.json`:
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:45Z",
+  "testRunId": "39df46e7-3a4d-45c4-9549-2ada0af1067d",
+  "summary": {
+    "lineCoverage": 85.5,
+    "branchCoverage": 78.3,
+    "coveredLines": 42,
+    "totalLines": 49
+  },
+  "files": [
+    {
+      "path": "/full/path/to/File.cs",
+      "lineCoverage": 60.0,
+      "coveredLines": 12,
+      "totalLines": 20,
+      "uncoveredLines": [15, 16, 17, 23, 24, 28],
+      "lines": [
+        {
+          "number": 15,
+          "hits": 0,
+          "isBranch": false
+        },
+        {
+          "number": 24,
+          "hits": 2,
+          "isBranch": true,
+          "branchCoverage": {
+            "covered": 2,
+            "total": 2,
+            "percentage": 100.0
+          }
+        }
+      ],
+      "methods": [
+        {
+          "name": "Calculate",
+          "signature": "(System.Int32)",
+          "lineCoverage": 100.0,
+          "startLine": 10,
+          "endLine": 20,
+          "complexity": 3
+        }
+      ]
+    }
+  ]
+}
+```
+
+This structured output enables IDE plugins to:
+- Highlight uncovered lines in red
+- Show hit counts in the gutter (heat map)
+- Display method coverage in the structure tree
+- Indicate branch coverage on conditional lines
+- Track coverage changes over time
+
 ## Project Structure
 ```
 /
@@ -121,6 +183,8 @@ warn: Build failed after file change
 - **`FileWatcherService.cs`**: FileSystemWatcher implementation with event handling
 - **`TestRunner.cs`**: Executes `dotnet test` commands with coverage collection
 - **`CoverletService.cs`**: Parses Cobertura XML coverage results
+- **`CoverageModels.cs`**: Rich data models for detailed coverage information (lines, methods, branches)
+- **`CoverageOutputService.cs`**: Writes structured JSON output for IDE plugin consumption
 - **`Calculator.cs`**: Sample implementation for testing Contesting itself
 
 ### File Monitoring
@@ -140,6 +204,21 @@ warn: Build failed after file change
 - Parses Cobertura XML format output
 - Reports line and branch coverage percentages
 - Highlights files with low coverage (<80%)
+
+### JSON Output for IDE Integration
+- Automatically writes `TestResults/latest-coverage.json` after each test run
+- Structured format with camelCase naming for easy parsing
+- Includes comprehensive coverage data:
+  - **Uncovered lines**: Array of line numbers that have no coverage
+  - **Hit counts**: Number of times each line was executed
+  - **Branch coverage**: Per-line branch coverage with covered/total counts
+  - **Method coverage**: Method-level coverage with complexity metrics
+  - **Test run metadata**: Timestamp and test run ID for tracking
+- IDE plugins can watch this file and:
+  - Highlight uncovered lines in the editor
+  - Show hit counts in the gutter
+  - Display method coverage in code structure
+  - Indicate branch coverage on conditionals
 
 ## Quick Commands (Makefile)
 
@@ -205,10 +284,24 @@ make report         # Generate HTML coverage report
 - **Cleaned up Makefile**: Updated coverage targets for Coverlet
 - **Added HTML report generation**: Optional ReportGenerator support
 
+### IDE-Friendly JSON Output (Completed)
+- **Created CoverageModels.cs**: Rich data models for detailed coverage information
+- **Created CoverageOutputService.cs**: Service that writes structured JSON output
+- **Enhanced CoverletService**: Extended XML parsing to extract hit counts, method details, branch coverage
+- **JSON Output**: Writes `TestResults/latest-coverage.json` with comprehensive coverage data
+- **Uncovered Lines**: Full list of line numbers without coverage for each file
+- **Hit Counts**: Per-line execution counts for heat mapping
+- **Method Coverage**: Method-level coverage with complexity metrics and line ranges
+- **Branch Coverage**: Per-line branch coverage details (covered/total branches)
+- **Zero Configuration**: Works automatically, no setup needed
+- **IDE Ready**: Structured format that IDE plugins can easily consume
+
 ## Future Enhancements (Planned)
 - **Smart Test Selection**: Use coverage data to run only affected tests
 - **Performance Optimization**: Cache coverage analysis results
 - **Configuration File**: Support for `.contesting.json` config files
 - **Multiple Project Support**: Handle solutions with multiple test projects
-- **IDE Integration**: Plugins for VS Code, Visual Studio, Rider
+- **IDE Plugins**: Build plugins for VS Code, Visual Studio, Rider that consume the JSON output
+- **Delta Coverage**: Compare coverage between test runs to show improvements/regressions
 - **Notification System**: Desktop notifications for test results
+- **Additional Output Formats**: HTML, LCOV, or custom formats

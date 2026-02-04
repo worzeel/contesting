@@ -9,6 +9,7 @@ public class FileWatcherService : BackgroundService
     private readonly ILogger<FileWatcherService> _logger;
     private readonly TestRunner _testRunner;
     private readonly CoverletService _coverletService;
+    private readonly CoverageOutputService _coverageOutputService;
     private readonly string _watchPath;
     private FileSystemWatcher? _watcher;
     private DateTime _lastProcessedTime = DateTime.MinValue;
@@ -18,11 +19,13 @@ public class FileWatcherService : BackgroundService
         ILogger<FileWatcherService> logger,
         TestRunner testRunner,
         CoverletService coverletService,
+        CoverageOutputService coverageOutputService,
         string watchPath = ".")
     {
         _logger = logger;
         _testRunner = testRunner;
         _coverletService = coverletService;
+        _coverageOutputService = coverageOutputService;
         _watchPath = Path.GetFullPath(watchPath);
     }
 
@@ -102,6 +105,10 @@ public class FileWatcherService : BackgroundService
                 // Show coverage summary
                 var coverage = _coverletService.GetLatestCoverageResult();
                 _coverletService.LogCoverageSummary(coverage);
+
+                // Write detailed coverage JSON for IDE plugins
+                var detailedCoverage = _coverletService.GetLatestCoverageResultDetail();
+                _coverageOutputService.WriteJsonOutput(detailedCoverage);
             }
             else
             {

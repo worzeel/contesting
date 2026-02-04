@@ -33,11 +33,14 @@ builder.Services.AddSingleton<TestRunner>(provider =>
     new TestRunner(provider.GetRequiredService<ILogger<TestRunner>>(), targetDirectory));
 builder.Services.AddSingleton<CoverletService>(provider =>
     new CoverletService(provider.GetRequiredService<ILogger<CoverletService>>(), targetDirectory));
+builder.Services.AddSingleton<CoverageOutputService>(provider =>
+    new CoverageOutputService(provider.GetRequiredService<ILogger<CoverageOutputService>>(), targetDirectory));
 builder.Services.AddHostedService<FileWatcherService>(provider =>
     new FileWatcherService(
         provider.GetRequiredService<ILogger<FileWatcherService>>(),
         provider.GetRequiredService<TestRunner>(),
         provider.GetRequiredService<CoverletService>(),
+        provider.GetRequiredService<CoverageOutputService>(),
         targetDirectory));
 
 var host = builder.Build();
@@ -60,6 +63,7 @@ logger.LogInformation("Found {SolutionCount} solution(s) and {ProjectCount} proj
 // Initial setup - build and run tests
 var testRunner = host.Services.GetRequiredService<TestRunner>();
 var coverletService = host.Services.GetRequiredService<CoverletService>();
+var coverageOutputService = host.Services.GetRequiredService<CoverageOutputService>();
 
 logger.LogInformation("Building solution...");
 var buildResult = await RunCommand("dotnet", "build", targetDirectory);
@@ -75,6 +79,10 @@ var testsPassed = await testRunner.RunTestsAsync(collectCoverage: true);
 // Show initial coverage summary
 var coverage = coverletService.GetLatestCoverageResult();
 coverletService.LogCoverageSummary(coverage);
+
+// Write detailed coverage JSON for IDE plugins
+var detailedCoverage = coverletService.GetLatestCoverageResultDetail();
+coverageOutputService.WriteJsonOutput(detailedCoverage);
 
 logger.LogInformation("Starting file monitoring...");
 await host.RunAsync();

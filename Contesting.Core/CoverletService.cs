@@ -39,6 +39,27 @@ public class CoverletService
     /// </summary>
     public CoverageResult? GetLatestCoverageResult()
     {
+        var (file, testRunId) = FindLatestCoverageFile();
+        if (file == null) return null;
+
+        _logger.LogDebug("Parsing coverage from {File}", file.FullName);
+        return ParseCoberturaFile(file.FullName);
+    }
+
+    /// <summary>
+    /// Finds and parses the most recent coverage file with detailed information for JSON output
+    /// </summary>
+    public CoverageResultDetail? GetLatestCoverageResultDetail()
+    {
+        var (file, testRunId) = FindLatestCoverageFile();
+        if (file == null) return null;
+
+        _logger.LogDebug("Parsing detailed coverage from {File}", file.FullName);
+        return ParseCoberturaFileDetailed(file.FullName, testRunId);
+    }
+
+    private (FileInfo? file, string testRunId) FindLatestCoverageFile()
+    {
         // Search for TestResults directories recursively (they're often in test project dirs)
         var testResultsDirs = Directory
             .GetDirectories(_workingDirectory, "TestResults", SearchOption.AllDirectories)
@@ -48,7 +69,7 @@ public class CoverletService
         if (!testResultsDirs.Any())
         {
             _logger.LogWarning("📊 Coverage: No TestResults directories found under {Path}", _workingDirectory);
-            return null;
+            return (null, "");
         }
 
         // Find the most recent coverage file across all TestResults directories
@@ -62,12 +83,155 @@ public class CoverletService
         {
             _logger.LogWarning("📊 Coverage: No coverage.cobertura.xml files found in TestResults directories");
             _logger.LogWarning("📊 Coverage: Make sure test project has coverlet.collector package reference");
-            return null;
+            return (null, "");
         }
 
         var coverageFile = coverageFiles.First();
-        _logger.LogDebug("Parsing coverage from {File}", coverageFile.FullName);
-        return ParseCoberturaFile(coverageFile.FullName);
+
+        // Extract test run ID from directory structure (GUID folder name)
+        var testRunId = "";
+        var parentDir = coverageFile.Directory?.Name;
+        if (parentDir != null && Guid.TryParse(parentDir, out _))
+        {
+            testRunId = parentDir;
+        }
+
+        return (coverageFile, testRunId);
+    }
+
+    /// <summary>
+    /// Parses a Cobertura XML coverage file with detailed information
+    /// </summary>
+    private CoverageResultDetail? ParseCoberturaFileDetailed(string filePath, string testRunId)
+    {
+        try
+        {
+            var doc = XDocument.Load(filePath);
+            var coverage = doc.Root;
+
+            if (coverage == null)
+                return null;
+
+            var result = new CoverageResultDetail
+            {
+                Timestamp = DateTime.UtcNow,
+                TestRunId = testRunId
+            };
+
+            // Parse overall coverage from root attributes
+            result.Summary.LineCoverage = ParseRate(coverage.Attribute("line-rate")) * 100;
+            result.Summary.BranchCoverage = ParseRate(coverage.Attribute("branch-rate")) * 100;
+            result.Summary.TotalLines = ParseInt(coverage.Attribute("lines-valid"));
+            result.Summary.CoveredLines = ParseInt(coverage.Attribute("lines-covered"));
+            result.Summary.TotalBranches = ParseInt(coverage.Attribute("branches-valid"));
+            result.Summary.CoveredBranches = ParseInt(coverage.Attribute("branches-covered"));
+
+            // Parse per-file coverage
+            var classes = coverage.Descendants("class");
+            foreach (var classElement in classes)
+            {
+                var filename = classElement.Attribute("filename")?.Value;
+                if (string.IsNullOrEmpty(filename))
+                    continue;
+
+                var fileCoverage = new FileCoverageDetail
+                {
+                    Path = filename,
+                    LineCoverage = ParseRate(classElement.Attribute("line-rate")) * 100,
+                    BranchCoverage = ParseRate(classElement.Attribute("branch-rate")) * 100
+                };
+
+                // Parse methods
+                var methods = classElement.Element("methods")?.Elements("method");
+                if (methods != null)
+                {
+                    foreach (var method in methods)
+                    {
+                        var methodDetail = new MethodCoverageDetail
+                        {
+                            Name = method.Attribute("name")?.Value ?? "",
+                            Signature = method.Attribute("signature")?.Value ?? "",
+                            LineCoverage = ParseRate(method.Attribute("line-rate")) * 100,
+                            Complexity = ParseInt(method.Attribute("complexity"))
+                        };
+
+                        // Get method line range
+                        var methodLines = method.Descendants("line");
+                        if (methodLines.Any())
+                        {
+                            var lineNumbers = methodLines
+                                .Select(l => ParseInt(l.Attribute("number")))
+                                .Where(n => n > 0)
+                                .ToList();
+
+                            if (lineNumbers.Any())
+                            {
+                                methodDetail.StartLine = lineNumbers.Min();
+                                methodDetail.EndLine = lineNumbers.Max();
+                            }
+                        }
+
+                        fileCoverage.Methods.Add(methodDetail);
+                    }
+                }
+
+                // Parse individual lines
+                var lines = classElement.Element("lines")?.Elements("line");
+                if (lines != null)
+                {
+                    foreach (var line in lines)
+                    {
+                        var lineNumber = ParseInt(line.Attribute("number"));
+                        if (lineNumber == 0) continue;
+
+                        var hits = ParseInt(line.Attribute("hits"));
+                        fileCoverage.TotalLines++;
+
+                        if (hits > 0)
+                        {
+                            fileCoverage.CoveredLines++;
+                        }
+                        else
+                        {
+                            fileCoverage.UncoveredLines.Add(lineNumber);
+                        }
+
+                        var lineDetail = new LineCoverageDetail
+                        {
+                            Number = lineNumber,
+                            Hits = hits
+                        };
+
+                        // Check for branch coverage
+                        var conditions = line.Attribute("condition-coverage")?.Value;
+                        if (!string.IsNullOrEmpty(conditions))
+                        {
+                            lineDetail.IsBranch = true;
+                            lineDetail.BranchCoverage = ParseBranchCoverage(conditions);
+
+                            if (lineDetail.BranchCoverage != null)
+                            {
+                                fileCoverage.TotalBranches += lineDetail.BranchCoverage.Total;
+                                fileCoverage.CoveredBranches += lineDetail.BranchCoverage.Covered;
+                            }
+                        }
+
+                        fileCoverage.Lines.Add(lineDetail);
+                    }
+                }
+
+                // Only add files with lines (skip empty/interface files)
+                if (fileCoverage.TotalLines > 0)
+                    result.Files.Add(fileCoverage);
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error parsing coverage file {File}", filePath);
+            return null;
+        }
     }
 
     /// <summary>
@@ -198,6 +362,56 @@ public class CoverletService
                 _logger.Log(logLevel, "  {Emoji} {File}: {Coverage:F1}% ({Covered}/{Total} lines)",
                     emoji, shortPath, file.LineCoverage, file.CoveredLines, file.TotalLines);
             }
+        }
+    }
+
+    /// <summary>
+    /// Helper to parse rate attributes (0.0-1.0)
+    /// </summary>
+    private static double ParseRate(XAttribute? attr)
+    {
+        if (attr == null) return 0;
+        return double.TryParse(attr.Value, out var rate) ? rate : 0;
+    }
+
+    /// <summary>
+    /// Helper to parse integer attributes
+    /// </summary>
+    private static int ParseInt(XAttribute? attr)
+    {
+        if (attr == null) return 0;
+        return int.TryParse(attr.Value, out var value) ? value : 0;
+    }
+
+    /// <summary>
+    /// Helper to parse branch coverage from condition-coverage attribute
+    /// Format: "50% (1/2)" or "100% (2/2)"
+    /// </summary>
+    private static BranchCoverageDetail? ParseBranchCoverage(string conditions)
+    {
+        try
+        {
+            // Format is typically: "50% (1/2)"
+            var parts = conditions.Split(' ');
+            if (parts.Length < 2) return null;
+
+            var fractionPart = parts[1].Trim('(', ')');
+            var fractionParts = fractionPart.Split('/');
+            if (fractionParts.Length != 2) return null;
+
+            if (!int.TryParse(fractionParts[0], out var covered)) return null;
+            if (!int.TryParse(fractionParts[1], out var total)) return null;
+
+            return new BranchCoverageDetail
+            {
+                Covered = covered,
+                Total = total,
+                Percentage = total > 0 ? (covered * 100.0 / total) : 0
+            };
+        }
+        catch
+        {
+            return null;
         }
     }
 
