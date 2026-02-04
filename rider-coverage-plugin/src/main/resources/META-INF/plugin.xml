@@ -1,0 +1,24 @@
+<idea-plugin>
+  <id>com.contesting.coverage</id>
+  <name>Contesting Coverage</name>
+  <vendor>Antonio</vendor>
+  <description>Displays code coverage from Contesting test runner in the editor gutter</description>
+  <version>1.0.0</version>
+
+  <depends>com.intellij.modules.platform</depends>
+  <depends>com.intellij.modules.rider</depends>
+
+  <!-- Extensions -->
+  <extensions defaultExtensionNs="com.intellij">
+    <!-- Services -->
+    <projectService serviceInterface="com.contesting.coverage.CoverageDataManager"
+                    serviceImplementation="com.contesting.coverage.CoverageDataManager"/>
+
+    <postStartupActivity implementation="com.contesting.coverage.CoveragePluginStartup"/>
+
+    <!-- Line marker provider for C# files -->
+    <codeInsight.lineMarkerProvider
+        language="C#"
+        implementationClass="com.contesting.coverage.CoverageLineMarkerProvider"/>
+  </extensions>
+</idea-plugin>

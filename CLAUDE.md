@@ -296,12 +296,41 @@ make report         # Generate HTML coverage report
 - **Zero Configuration**: Works automatically, no setup needed
 - **IDE Ready**: Structured format that IDE plugins can easily consume
 
+### Rider Coverage Plugin (Completed)
+- **IntelliJ/Rider Plugin**: Built Kotlin-based plugin for JetBrains Rider
+- **Gutter Icons**: Shows green/red dots for covered/uncovered lines
+- **Auto-Detection**: Finds `TestResults/latest-coverage.json` automatically
+- **Test File Exclusion**: Skips test files via attribute detection ([Test], [Fact], etc.)
+- **Live Updates**: Watches JSON file and refreshes coverage when Contesting runs
+- **Zero Configuration**: Works out of the box, no settings needed
+- **Plugin Location**: `rider-coverage-plugin/` directory
+- **Build Tool**: Gradle with IntelliJ Platform plugin
+- **Distribution**: Builds to `.zip` file for manual installation in Rider
+
+## Rider Plugin Usage
+
+```bash
+# Build the plugin
+cd rider-coverage-plugin
+make build
+
+# Install in Rider
+# Settings → Plugins → ⚙️ → Install Plugin from Disk...
+# Select: build/distributions/rider-coverage-plugin-1.0.0.zip
+# Restart Rider
+
+# Development - run plugin in test Rider instance
+make run
+```
+
 ## Future Enhancements (Planned)
 - **Smart Test Selection**: Use coverage data to run only affected tests
 - **Performance Optimization**: Cache coverage analysis results
 - **Configuration File**: Support for `.contesting.json` config files
 - **Multiple Project Support**: Handle solutions with multiple test projects
-- **IDE Plugins**: Build plugins for VS Code, Visual Studio, Rider that consume the JSON output
+- **VS Code Plugin**: Build plugin for VS Code that consumes the JSON output
+- **Visual Studio Extension**: Native extension for Visual Studio
 - **Delta Coverage**: Compare coverage between test runs to show improvements/regressions
 - **Notification System**: Desktop notifications for test results
 - **Additional Output Formats**: HTML, LCOV, or custom formats
+- **Rider Plugin Enhancements**: Settings UI, click actions, branch coverage indicators, status bar
